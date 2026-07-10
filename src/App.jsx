@@ -1017,8 +1017,10 @@ const css = `
     var(--bg);
   font-family:'Gowun Dodum',sans-serif;
   display:flex;flex-direction:column;align-items:center;
-  padding:18px 16px calc(56px + env(safe-area-inset-bottom, 0px));
+  padding:calc(18px + env(safe-area-inset-top, 0px)) 16px calc(56px + env(safe-area-inset-bottom, 0px));
+  padding-top:max(18px, calc(12px + env(safe-area-inset-top, 0px)));
 }
+html,body{background:var(--bg)}
 
 /* 헤더 */
 .top{width:100%;max-width:560px;display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
