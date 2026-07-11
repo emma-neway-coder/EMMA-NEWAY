@@ -216,6 +216,143 @@ const Pingty = ({ size = 64, className = "" }) => (
     style={{ width: size, height: "auto", display: "block" }} />
 );
 
+/* ── 계정 동기화 (이메일/구글 로그인 시 자동 백업) ── */
+import {
+  auth, googleProvider, userDocRef,
+  createUserWithEmailAndPassword, signInWithEmailAndPassword,
+  signInWithPopup, signOut, onAuthStateChanged,
+  sendPasswordResetEmail, getDoc, setDoc, serverTimestamp,
+  trackAuthEvent,
+} from "./firebase";
+
+/* 로컬 기록과 서버 기록을 ts(마지막 수정 시각) 기준으로 병합 — 최신 것이 이김 */
+function mergeAnswers(local, remote) {
+  const out = { ...(remote || {}) };
+  for (const id of Object.keys(local || {})) {
+    const l = local[id];
+    const r = out[id];
+    if (!r || (l?.ts ?? 0) >= (r?.ts ?? 0)) out[id] = l;
+  }
+  return out;
+}
+
+const AuthPanel = ({ open, onClose, user, onAuthed }) => {
+  const [mode, setMode] = useState("login"); // login | signup
+  const [email, setEmail] = useState("");
+  const [pw, setPw] = useState("");
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(false);
+
+  if (!open) return null;
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setErr(""); setBusy(true);
+    try {
+      if (mode === "signup") {
+        const cred = await createUserWithEmailAndPassword(auth, email, pw);
+        trackAuthEvent("sign_up", { uid: cred.user.uid, email: cred.user.email, method: "password" });
+      } else {
+        const cred = await signInWithEmailAndPassword(auth, email, pw);
+        trackAuthEvent("login", { uid: cred.user.uid, email: cred.user.email, method: "password" });
+      }
+      onAuthed?.();
+      onClose();
+    } catch (e2) {
+      const map = {
+        "auth/invalid-email": "이메일 형식을 확인해주세요.",
+        "auth/email-already-in-use": "이미 가입된 이메일이에요. 로그인해주세요.",
+        "auth/weak-password": "비밀번호는 6자 이상이어야 해요.",
+        "auth/invalid-credential": "이메일 또는 비밀번호가 맞지 않아요.",
+        "auth/user-not-found": "가입되지 않은 이메일이에요.",
+      };
+      setErr(map[e2.code] || "잠시 후 다시 시도해주세요.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const google = async () => {
+    setErr(""); setBusy(true);
+    try {
+      const cred = await signInWithPopup(auth, googleProvider);
+      trackAuthEvent("login", { uid: cred.user.uid, email: cred.user.email, method: "google" });
+      onAuthed?.();
+      onClose();
+    } catch (e2) {
+      setErr("구글 로그인에 실패했어요.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const reset = async () => {
+    if (!email) { setErr("비밀번호를 재설정할 이메일을 먼저 입력해주세요."); return; }
+    try {
+      await sendPasswordResetEmail(auth, email);
+      setSent(true);
+    } catch (e2) {
+      setErr("재설정 메일 전송에 실패했어요.");
+    }
+  };
+
+  return (
+    <div className="modal-back" onClick={onClose}>
+      <div className="modal auth-modal" onClick={(e) => e.stopPropagation()}>
+        {user ? (
+          <>
+            <h3>계정</h3>
+            <p className="auth-email">{user.email}</p>
+            <p className="auth-note">이 기기가 아니어도 로그인하면 기록을 그대로 볼 수 있어요.</p>
+            <button className="ghost" onClick={async () => { await signOut(auth); onClose(); }}>로그아웃</button>
+          </>
+        ) : (
+          <>
+            <div className="auth-tabs" role="tablist">
+              <button type="button" role="tab" aria-selected={mode === "login"}
+                className={mode === "login" ? "on" : ""} onClick={() => { setMode("login"); setErr(""); }}>로그인</button>
+              <button type="button" role="tab" aria-selected={mode === "signup"}
+                className={mode === "signup" ? "on" : ""} onClick={() => { setMode("signup"); setErr(""); }}>회원가입</button>
+            </div>
+            <p className="auth-note">기록을 계정에 백업해두면 기기를 바꾸거나 오래 쉬었다 와도 사라지지 않아요.</p>
+            <button type="button" className="google-btn" onClick={google} disabled={busy}>
+              <svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true">
+                <path d="M19.6 10.227c0-.709-.064-1.39-.182-2.045H10v3.868h5.382a4.6 4.6 0 0 1-2 3.018v2.51h3.232C18.51 15.836 19.6 13.273 19.6 10.227Z" fill="#4285F4" />
+                <path d="M10 20c2.7 0 4.964-.895 6.618-2.423l-3.232-2.51c-.895.6-2.04.955-3.386.955-2.605 0-4.81-1.76-5.595-4.123H1.064v2.59C2.71 17.76 6.09 20 10 20Z" fill="#34A853" />
+                <path d="M4.405 11.9A5.99 5.99 0 0 1 4.09 10c0-.66.114-1.3.314-1.9V5.51H1.064A9.98 9.98 0 0 0 0 10c0 1.614.386 3.14 1.064 4.49l3.34-2.59Z" fill="#FBBC04" />
+                <path d="M10 3.977c1.468 0 2.786.505 3.823 1.496l2.868-2.868C14.96.991 12.695 0 10 0 6.09 0 2.71 2.241 1.064 5.51l3.34 2.59C5.19 5.737 7.395 3.977 10 3.977Z" fill="#E94235" />
+              </svg>
+              Google로 계속하기
+            </button>
+            <div className="auth-divider">또는</div>
+            <form onSubmit={submit} className="auth-form">
+              <input type="email" placeholder="이메일" value={email} onChange={(e) => setEmail(e.target.value)} required />
+              <input type="password" placeholder="비밀번호 (6자 이상)" value={pw} onChange={(e) => setPw(e.target.value)} minLength={6} required />
+              {err && <p className="auth-err">{err}</p>}
+              {sent && <p className="auth-sent">재설정 메일을 보냈어요.</p>}
+              <button type="submit" className="primary" disabled={busy}>
+                <svg viewBox="0 0 24 24" width="17" height="17" fill="none"
+                  stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <rect x="3" y="5.5" width="18" height="13" rx="2.5" />
+                  <path d="M3.6 7 12 12.8 20.4 7" />
+                </svg>
+                {mode === "login" ? "이메일로 로그인" : "이메일로 가입하기"}
+              </button>
+            </form>
+            <div className="auth-switch">
+              {mode === "login" && (
+                <button type="button" onClick={reset}>비밀번호를 잊었어요</button>
+              )}
+            </div>
+          </>
+        )}
+        <button className="modal-x" onClick={onClose} aria-label="닫기">✕</button>
+      </div>
+    </div>
+  );
+};
+
 /* 아카이브 답변: 길면 접어두고 '더 읽기'로 펼친다 */
 const ARCH_CLAMP_CHARS = 240;
 const ARCH_CLAMP_LINES = 7;
@@ -253,6 +390,8 @@ export default function App() {
   const [loaded, setLoaded] = useState(false);
   const [saveState, setSaveState] = useState("");  // '' | saving | saved
   const [askReset, setAskReset] = useState(false);
+  const [user, setUser] = useState(null);
+  const [authOpen, setAuthOpen] = useState(false);
   const taRef = useRef(null);
   const toastT = useRef(null);
   const autoT = useRef(null);
@@ -261,6 +400,8 @@ export default function App() {
   const touchRef = useRef(null);      // 스와이프 시작점
 
   useEffect(() => { answersRef.current = answers; }, [answers]);
+  const userRef = useRef(null);
+  useEffect(() => { userRef.current = user; }, [user]);
 
   /* 화면을 벗어날 때 미저장 입력 즉시 저장 */
   useEffect(() => {
@@ -311,6 +452,34 @@ export default function App() {
       memNoticeShown.current = true;
       popToast("이 화면에선 기록이 임시로만 저장돼요");
     }
+    // 로그인 상태면 항상 계정에도 같이 백업 (기기 하나에만 의존하지 않도록)
+    const u = userRef.current;
+    if (u) {
+      try {
+        await setDoc(userDocRef(u.uid), { answers: next, updatedAt: serverTimestamp() }, { merge: true });
+      } catch (e) { /* 네트워크 문제 등 — 다음 저장 때 다시 시도됨 */ }
+    }
+  }, []);
+
+  /* 로그인 감지 + 로그인 시점 병합(로컬 ↔ 서버, 최신 수정분이 이김) */
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async (u) => {
+      setUser(u);
+      if (!u) return;
+      try {
+        const snap = await getDoc(userDocRef(u.uid));
+        const remote = snap.exists() ? (snap.data().answers || {}) : {};
+        const merged = mergeAnswers(answersRef.current, remote);
+        answersRef.current = merged;
+        setAnswers(merged);
+        await store.save(STORE_KEY, JSON.stringify(merged));
+        await setDoc(userDocRef(u.uid), { answers: merged, updatedAt: serverTimestamp() }, { merge: true });
+        popToast("계정에 기록을 백업해뒀어요");
+      } catch (e) {
+        popToast("계정 동기화 중 문제가 있었어요, 잠시 후 다시 시도해주세요");
+      }
+    });
+    return () => unsub();
   }, []);
 
   const popToast = (m) => {
@@ -326,6 +495,12 @@ export default function App() {
   const allDone = doneCount === DECK.length;
   const mainDone = CARDS.filter((c) => getText(c.id)).length;
   const pracDone = PRACTICE.filter((c) => getText(c.id)).length;
+  const pendingAction = useRef(null);
+  const requireAuth = (fn) => {
+    if (userRef.current) { fn(); return; }
+    pendingAction.current = fn;
+    setAuthOpen(true);
+  };
   const enterDeck = (mode, at = 0, write = false) => {
     const deck = mode === "practice" ? PRACTICE : CARDS;
     const target = deck[Math.min(at, deck.length - 1)];
@@ -490,7 +665,21 @@ export default function App() {
             </button>
           </nav>
         )}
+        <button className="account-btn" onClick={() => setAuthOpen(true)}>
+          {user ? "계정" : "로그인"}
+        </button>
       </header>
+
+      <AuthPanel
+        open={authOpen}
+        onClose={() => setAuthOpen(false)}
+        user={user}
+        onAuthed={() => {
+          const fn = pendingAction.current;
+          pendingAction.current = null;
+          if (fn) fn();
+        }}
+      />
 
       {(view === "deck" || view === "archive") && (
         <nav className="deck-switch" aria-label="카드덱 첫 장으로 이동">
@@ -553,28 +742,28 @@ export default function App() {
               <div className="cover-actions">
                 <p className="branch-q">회고, 처음이신가요?</p>
                 <div className="branch-row">
-                  <button className="primary" onClick={() => { setStoryOpen(false); setView("intro"); }}>
+                  <button className="primary" onClick={() => requireAuth(() => { setStoryOpen(false); setView("intro"); })}>
                     처음이에요
                   </button>
-                  <button className="primary alt" onClick={() => setView("welcome")}>
+                  <button className="primary alt" onClick={() => requireAuth(() => setView("welcome"))}>
                     해본 적 있어요
                   </button>
                 </div>
                 {(mainDone > 0 || pracDone > 0) && (
                   <div className="continue-row">
                     {mainDone > 0 && (
-                      <button className="ghost" onClick={() => {
+                      <button className="ghost" onClick={() => requireAuth(() => {
                         const first = CARDS.findIndex((c) => !getText(c.id));
                         enterDeck("main", first === -1 ? 0 : first);
-                      }}>반,짝임 이어서 쓰기 · {mainDone}장</button>
+                      })}>반,짝임 이어서 쓰기 · {mainDone}장</button>
                     )}
                     {pracDone > 0 && pracDone < PRACTICE.length && (
-                      <button className="ghost" onClick={() => {
+                      <button className="ghost" onClick={() => requireAuth(() => {
                         const first = PRACTICE.findIndex((c) => !getText(c.id));
                         enterDeck("practice", first === -1 ? 0 : first);
-                      }}>첫,눈 이어서 쓰기 · {pracDone}장</button>
+                      })}>첫,눈 이어서 쓰기 · {pracDone}장</button>
                     )}
-                    <button className="ghost" onClick={() => setView("archive")}>아카이브 보기</button>
+                    <button className="ghost" onClick={() => requireAuth(() => setView("archive"))}>아카이브 보기</button>
                   </div>
                 )}
               </div>
@@ -1279,6 +1468,66 @@ button:focus-visible{outline:2px solid var(--orange);outline-offset:2px}
   padding:6px 0 0;display:block;
 }
 .arch-empty{font-size:13px;color:var(--ink-soft);opacity:.7}
+
+.account-btn{
+  margin-left:auto;border:1px solid var(--line);background:var(--card);
+  border-radius:999px;padding:6px 14px;font-size:12.5px;color:var(--ink);
+  cursor:pointer;
+}
+.modal-back{
+  position:fixed;inset:0;background:rgba(30,24,18,.35);
+  display:flex;align-items:center;justify-content:center;z-index:50;padding:20px;
+}
+.modal{
+  background:var(--card);border-radius:18px;padding:26px 24px;max-width:360px;width:100%;
+  position:relative;box-shadow:0 12px 40px rgba(0,0,0,.18);
+}
+.modal h3{margin:0 0 8px;font-size:17px}
+.modal-x{
+  position:absolute;top:12px;right:14px;border:none;background:none;
+  font-size:15px;color:var(--ink-soft);cursor:pointer;
+}
+.auth-note{font-size:12.5px;color:var(--ink-soft);line-height:1.6;margin:0 0 16px}
+.auth-email{font-size:14px;font-weight:600;margin:0 0 6px}
+.google-btn{
+  width:100%;padding:10px;border-radius:10px;border:1px solid var(--line);
+  background:#fff;font-size:14px;cursor:pointer;margin-bottom:12px;
+  display:flex;align-items:center;justify-content:center;gap:8px;
+}
+.auth-divider{
+  text-align:center;font-size:12px;color:var(--ink-soft);margin:0 0 12px;position:relative;
+}
+.auth-form{display:flex;flex-direction:column;gap:8px}
+.auth-form input{
+  padding:10px 12px;border-radius:10px;border:1px solid var(--line);
+  font-size:14px;font-family:inherit;background:#fff;
+}
+.auth-form .primary{
+  margin-top:4px;padding:10px;border-radius:10px;border:none;
+  background:var(--olive-deep,#5b6a4a);color:#fff;font-size:14px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;gap:8px;
+}
+.auth-err{color:#b3452f;font-size:12.5px;margin:2px 0 0}
+.auth-sent{color:var(--olive-deep,#5b6a4a);font-size:12.5px;margin:2px 0 0}
+.auth-switch{
+  display:flex;flex-direction:column;gap:6px;margin-top:14px;
+}
+.auth-switch button{
+  border:none;background:none;font-size:12.5px;color:var(--ink-soft);
+  text-decoration:underline;text-underline-offset:3px;cursor:pointer;text-align:left;padding:0;
+}
+.auth-tabs{
+  display:flex;gap:4px;background:var(--paper,#f1ece0);border-radius:999px;
+  padding:4px;margin:0 0 14px;
+}
+.auth-tabs button{
+  flex:1;border:none;background:none;border-radius:999px;padding:8px 0;
+  font-size:13.5px;font-family:inherit;color:var(--ink-soft);cursor:pointer;
+}
+.auth-tabs button.on{
+  background:var(--card);color:var(--ink);font-weight:600;
+  box-shadow:0 1px 3px rgba(0,0,0,.08);
+}
 
 /* 표지 분기·연습 */
 .branch-q{font-family:'Gowun Batang',serif;font-size:14.5px;color:var(--ink);margin-bottom:4px}
