@@ -216,6 +216,27 @@ const Pingty = ({ size = 64, className = "" }) => (
     style={{ width: size, height: "auto", display: "block" }} />
 );
 
+/* 아카이브 답변: 길면 접어두고 '더 읽기'로 펼친다 */
+const ARCH_CLAMP_CHARS = 240;
+const ARCH_CLAMP_LINES = 7;
+const ArchAnswer = ({ text }) => {
+  const [open, setOpen] = useState(false);
+  const lines = text.split("\n");
+  const isLong = text.length > ARCH_CLAMP_CHARS || lines.length > ARCH_CLAMP_LINES;
+  return (
+    <>
+      <div className={`arch-a ${isLong && !open ? "clamped" : ""}`}>
+        {lines.map((ln, i) => <p key={i}>{ln || "\u00A0"}</p>)}
+      </div>
+      {isLong && (
+        <button className="arch-more" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+          {open ? "접기" : "더 읽기"}
+        </button>
+      )}
+    </>
+  );
+};
+
 export default function App() {
   const [view, setView] = useState("cover");     // cover | intro | deck | bridge | outro | archive
   const [deckMode, setDeckMode] = useState("main"); // main | practice
@@ -902,7 +923,7 @@ export default function App() {
                     </header>
                     <p className="arch-q">{c.q}</p>
                     {a
-                      ? <div className="arch-a">{a.split("\n").map((ln, i) => <p key={i}>{ln || "\u00A0"}</p>)}</div>
+                      ? <ArchAnswer text={a} />
                       : <p className="arch-empty">아직 빈 카드예요.</p>}
                   </article>
                 );
@@ -929,7 +950,7 @@ export default function App() {
                     </header>
                     <p className="arch-q">{c.q}</p>
                     {a
-                      ? <div className="arch-a">{a.split("\n").map((ln, i) => <p key={i}>{ln || "\u00A0"}</p>)}</div>
+                      ? <ArchAnswer text={a} />
                       : <p className="arch-empty">아직 빈 카드예요.</p>}
                   </article>
                 );
@@ -1236,6 +1257,7 @@ button:focus-visible{outline:2px solid var(--orange);outline-offset:2px}
 .arch-card{
   background:var(--card);border:1px solid var(--line);border-radius:14px;
   padding:16px 18px;margin-bottom:10px;
+  overflow-wrap:anywhere;word-wrap:break-word;overflow-x:hidden;
 }
 .arch-card.filled{border-left:3px solid var(--orange)}
 .arch-card header{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
@@ -1244,7 +1266,18 @@ button:focus-visible{outline:2px solid var(--orange);outline-offset:2px}
 .when{font-size:11px;color:var(--ink-soft)}
 .edit{border:none;background:none;font-family:inherit;font-size:12px;color:var(--olive-deep);cursor:pointer;text-decoration:underline;text-underline-offset:3px}
 .arch-q{font-size:13px;line-height:1.7;color:var(--ink-soft);word-break:keep-all;margin-bottom:8px}
-.arch-a p{font-family:'Gowun Batang',serif;font-size:14.5px;line-height:1.85;word-break:keep-all}
+.arch-a{min-width:0;max-width:100%}
+.arch-a p{font-family:'Gowun Batang',serif;font-size:14.5px;line-height:1.85;word-break:keep-all;word-wrap:break-word;overflow-wrap:anywhere}
+.arch-a.clamped{max-height:188px;overflow:hidden;position:relative}
+.arch-a.clamped::after{
+  content:"";position:absolute;left:0;right:0;bottom:0;height:54px;pointer-events:none;
+  background:linear-gradient(to bottom, rgba(255,255,255,0), var(--card));
+}
+.arch-more{
+  border:none;background:none;font-family:inherit;font-size:12px;color:var(--olive-deep);
+  cursor:pointer;text-decoration:underline;text-underline-offset:3px;
+  padding:6px 0 0;display:block;
+}
 .arch-empty{font-size:13px;color:var(--ink-soft);opacity:.7}
 
 /* 표지 분기·연습 */
