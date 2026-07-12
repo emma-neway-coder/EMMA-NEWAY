@@ -768,7 +768,6 @@ export default function App() {
                     <b className="why-tag">조직심리학</b>
                     하루를 짧게라도 돌아본 사람이 그러지 않은 사람보다 더 잘하게 됐대요. 더 열심히 해서가 아니라, 뭐가 통했는지 알아차렸기 때문에요.
                   </p>
-                  <p className="why-more">그래서 반틈에는 질문마다 근거를 하나씩 붙여뒀어요.</p>
                 </>
               )}
             </div>
@@ -806,7 +805,6 @@ export default function App() {
                     <span className="pv-face pv-back">
                       <span className="pv-chip">{c.tag}</span>
                       <span className="pv-paper">여기에 적어요.</span>
-                      <span className="pv-note">적은 건 계정에만 남아요.</span>
                     </span>
                   </span>
                 </button>
