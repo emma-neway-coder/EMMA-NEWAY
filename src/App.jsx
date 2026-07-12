@@ -384,6 +384,8 @@ export default function App() {
   const [introBasis, setIntroBasis] = useState(false);
   const [coverBasis, setCoverBasis] = useState(false); // 표지: 핑티가 덧붙이는 근거
   const [pvFlip, setPvFlip] = useState({});            // 표지 미리보기 카드 뒤집힘 상태
+  const [coverScroll, setCoverScroll] = useState(0);   // 표지: 얼마나 읽었나 (0~1)
+  const [coverScrollable, setCoverScrollable] = useState(false);
   const [idx, setIdx] = useState(0);
   const [answers, setAnswers] = useState({});    // {id:{text, ts}}
   const [flipped, setFlipped] = useState(false);
@@ -528,6 +530,28 @@ export default function App() {
 
   /* 화면이 바뀌면 스크롤을 맨 위로 */
   useEffect(() => { window.scrollTo(0, 0); }, [view]);
+
+  /* 표지: 세로 스크롤 진행률 (우측 얇은 인디케이터) */
+  useEffect(() => {
+    if (view !== "cover") { setCoverScroll(0); setCoverScrollable(false); return; }
+    const measure = () => {
+      const h = document.documentElement;
+      const max = h.scrollHeight - h.clientHeight;
+      setCoverScrollable(max > 6);
+      setCoverScroll(max > 0 ? Math.min(1, Math.max(0, h.scrollTop / max)) : 0);
+    };
+    measure();
+    window.addEventListener("scroll", measure, { passive: true });
+    window.addEventListener("resize", measure);
+    // 폰트/이미지 로드 후 높이 변화 대응
+    const t1 = setTimeout(measure, 200);
+    const t2 = setTimeout(measure, 800);
+    return () => {
+      window.removeEventListener("scroll", measure);
+      window.removeEventListener("resize", measure);
+      clearTimeout(t1); clearTimeout(t2);
+    };
+  }, [view, coverBasis, loaded]);
   const lastTs = Math.max(0, ...Object.values(answers).map((a) => a?.ts || 0));
 
   const commit = useCallback((id, text) => {
@@ -728,6 +752,11 @@ export default function App() {
       {/* ── 표지 ── */}
       {view === "cover" && (
         <main className="cover">
+          {coverScrollable && (
+            <div className="cover-progress" aria-hidden="true">
+              <i style={{ transform: `scaleY(${coverScroll})` }} />
+            </div>
+          )}
           <div className="cover-card">
             <p className="kicker">2026 상반기 회고 프로그램</p>
             <img src={IMG_COVER} alt="" aria-hidden="true" className="scene" />
@@ -1360,6 +1389,31 @@ html,body{background:var(--bg)}
 .cover-card .intro{font-size:13.5px;line-height:1.95;color:var(--ink-soft);word-break:keep-all}
 .cat-legend{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:20px}
 .cat-legend span{font-size:11px;color:var(--olive-deep);border:1px solid var(--line);background:rgba(255,255,255,.5);border-radius:999px;padding:4px 11px}
+
+/* ── 표지: 세로 스크롤 프로그레스 (우측 얇은 바) ── */
+.cover-progress{
+  position:fixed;
+  top:calc(72px + env(safe-area-inset-top));
+  bottom:calc(28px + env(safe-area-inset-bottom));
+  right:8px;
+  width:2px;
+  background:rgba(87,80,63,.10);
+  border-radius:2px;
+  pointer-events:none;
+  z-index:5;
+  opacity:.85;
+}
+.cover-progress i{
+  display:block;width:100%;height:100%;
+  background:var(--olive);
+  border-radius:2px;
+  transform-origin:top center;
+  transition:transform .12s linear;
+  will-change:transform;
+}
+@media (max-width:430px){
+  .cover-progress{right:6px}
+}
 
 /* ── 표지 스토리텔링 ── */
 .intro.invite{margin-top:20px}
