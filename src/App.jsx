@@ -158,6 +158,9 @@ const PRACTICE = [
 
 const CATS = [...new Set(CARDS.map((c) => c.cat))];
 const COVER_CATS = CATS.filter((c) => !["몸풀기", "갈무리", "마지막"].includes(c));
+/* 표지 미리보기: 스토리텔링과 짝을 이루는 두 장.
+   p03 「요즘 웃은 순간」 — "편안한 마음으로" / p08 「요즘 나는」 — "나를 알아가는 일" */
+const PREVIEW_CARDS = ["p03", "p08"].map((id) => PRACTICE.find((c) => c.id === id));
 const STORE_KEY = "banjeol-2026-h1-answers";
 const sentences = (t) =>
   (t.match(/[^.?!]+[.?!]+["')\]]*\s*|[^.?!]+$/g) || [t]).map((s) => s.trim()).filter(Boolean);
@@ -379,6 +382,8 @@ export default function App() {
   const [deckMode, setDeckMode] = useState("main"); // main | practice
   const [storyOpen, setStoryOpen] = useState(false);
   const [introBasis, setIntroBasis] = useState(false);
+  const [coverBasis, setCoverBasis] = useState(false); // 표지: 핑티가 덧붙이는 근거
+  const [pvFlip, setPvFlip] = useState({});            // 표지 미리보기 카드 뒤집힘 상태
   const [idx, setIdx] = useState(0);
   const [answers, setAnswers] = useState({});    // {id:{text, ts}}
   const [flipped, setFlipped] = useState(false);
@@ -463,22 +468,27 @@ export default function App() {
 
   /* 로그인 감지 + 로그인 시점 병합(로컬 ↔ 서버, 최신 수정분이 이김) */
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (u) => {
-      setUser(u);
-      if (!u) return;
-      try {
-        const snap = await getDoc(userDocRef(u.uid));
-        const remote = snap.exists() ? (snap.data().answers || {}) : {};
-        const merged = mergeAnswers(answersRef.current, remote);
-        answersRef.current = merged;
-        setAnswers(merged);
-        await store.save(STORE_KEY, JSON.stringify(merged));
-        await setDoc(userDocRef(u.uid), { answers: merged, updatedAt: serverTimestamp() }, { merge: true });
-        popToast("계정에 기록을 백업해뒀어요");
-      } catch (e) {
-        popToast("계정 동기화 중 문제가 있었어요, 잠시 후 다시 시도해주세요");
-      }
-    });
+    let unsub = () => {};
+    try {
+      unsub = onAuthStateChanged(auth, async (u) => {
+        setUser(u);
+        if (!u) return;
+        try {
+          const snap = await getDoc(userDocRef(u.uid));
+          const remote = snap.exists() ? (snap.data().answers || {}) : {};
+          const merged = mergeAnswers(answersRef.current, remote);
+          answersRef.current = merged;
+          setAnswers(merged);
+          await store.save(STORE_KEY, JSON.stringify(merged));
+          await setDoc(userDocRef(u.uid), { answers: merged, updatedAt: serverTimestamp() }, { merge: true });
+          popToast("계정에 기록을 백업해뒀어요");
+        } catch (e) {
+          popToast("계정 동기화 중 문제가 있었어요, 잠시 후 다시 시도해주세요");
+        }
+      });
+    } catch (e) {
+      console.error("Firebase Auth 초기화 실패 — 환경변수를 확인해주세요.", e);
+    }
     return () => unsub();
   }, []);
 
@@ -665,7 +675,16 @@ export default function App() {
             </button>
           </nav>
         )}
-        <button className="account-btn" onClick={() => setAuthOpen(true)}>
+        <button
+          className={`account-btn ${user ? "quiet" : "solid"}`}
+          onClick={() => setAuthOpen(true)}
+          aria-label={user ? "계정 정보 열기" : "로그인 또는 회원가입"}
+        >
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none"
+            stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="12" cy="8" r="3.6" />
+            <path d="M4.8 20a7.2 7.2 0 0 1 14.4 0" />
+          </svg>
           {user ? "계정" : "로그인"}
         </button>
       </header>
@@ -722,20 +741,78 @@ export default function App() {
               <Spark size={8} color="var(--olive)" className="s4" delay={1.9} />
             </div>
             <p className="prog-sub">반틈 with 핑티</p>
-            <p className="intro">
-              반틈은 우리 삶의 작은 여유를 뜻해요.<br />
-              딱 그만큼의 틈만 있어도<br />
-              나를 돌볼 수 있다고 믿어요.<br /><br />
-              잘 살았는지 채점하는 시간이 아니라,<br />
-              내가 무얼 좋아했고 어디에 마음을 두었는지<br />
-              하나씩 주워 담는 시간이에요.<br /><br />
-              핑티와 함께 스무 개의 질문을 천천히 넘겨봐요.<br />
-              카드를 뒤집으면 뒷면에 적을 수 있고,<br />
-              질문마다 연구에 기댄 근거도 분야와 함께 담아뒀어요.
+            <p className="intro story">
+              안녕, 나는 핑티예요.<br />
+              매일 밤 하루를 조금씩 되감아 보며 산답니다.<br />
+              별건 아니고… 오늘 뭐가 좋았지, 왜 그때 기분이 상했지,<br />
+              그런 걸 혼자 중얼거리다 잠드는 거예요.<br /><br />
+              그런데 하다 보니 이상한 일이 생기더라고요.<br />
+              내가 뭘 좋아하는 사람인지,<br />
+              어떤 말에 마음이 무너지는 사람인지,<br />
+              조금씩 알게 되는 거예요.<br /><br />
+              나를 아는 일은 돌아보는 데서 시작하더라고요.<br />
+              회고는 그 맨 처음 순서인 셈이에요.
             </p>
+
+            <div className={`why intro-why ${coverBasis ? "open" : ""}`}>
+              <button className="why-toggle" onClick={() => setCoverBasis((v) => !v)} aria-expanded={coverBasis}>
+                {coverBasis ? "근거 접기" : "나만 그런 게 아니래요 · 근거 보기"}
+              </button>
+              {coverBasis && (
+                <>
+                  <p className="why-text">
+                    <b className="why-tag">임상심리학</b>
+                    형식 없이 마음을 그냥 적기만 해도 감정이 정리되고 회복이 빨라진대요. 수십 년 동안 반복해서 확인된 이야기예요. (Expressive Writing)
+                  </p>
+                  <p className="why-text">
+                    <b className="why-tag">조직심리학</b>
+                    하루를 짧게라도 돌아본 사람이 그러지 않은 사람보다 더 잘하게 됐대요. 더 열심히 해서가 아니라, 뭐가 통했는지 알아차렸기 때문에요.
+                  </p>
+                  <p className="why-more">그래서 반틈에는 질문마다 근거를 하나씩 붙여뒀어요.</p>
+                </>
+              )}
+            </div>
+
+            <p className="intro story invite">
+              회고란 잘 살았는지 채점하는 시간이 아니에요.<br />
+              틀린 답도 없고, 다 못 채워도 괜찮아요.<br /><br />
+              편안한 마음으로,<br />
+              나를 알아가는 일을 시작해볼까요?
+            </p>
+
             <div className="cat-legend">
               {COVER_CATS.map((c) => <span key={c}>{c}</span>)}
             </div>
+
+            {/* 미리보기 카드 — 로그인 전에 실제 카드를 뒤집어볼 수 있게 */}
+            <p className="pv-lead">이런 질문이에요. 한번 뒤집어봐요.</p>
+            <div className="preview-row">
+              {PREVIEW_CARDS.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  className={`pv-flip ${pvFlip[c.id] ? "isFlipped" : ""}`}
+                  onClick={() => setPvFlip((m) => ({ ...m, [c.id]: !m[c.id] }))}
+                  aria-pressed={!!pvFlip[c.id]}
+                  aria-label={`미리보기 카드: ${c.tag}. 눌러서 ${pvFlip[c.id] ? "질문 면" : "쓰는 면"} 보기`}
+                >
+                  <span className="pv-inner">
+                    <span className="pv-face pv-front">
+                      <span className="pv-chip">{c.tag}</span>
+                      <span className="pv-illust"><img src={P_IMGS[c.img]} alt="" /></span>
+                      <span className="pv-q">{c.q}</span>
+                      <span className="pv-hint">↻ 뒤집어보기</span>
+                    </span>
+                    <span className="pv-face pv-back">
+                      <span className="pv-chip">{c.tag}</span>
+                      <span className="pv-paper">여기에 적어요.</span>
+                      <span className="pv-note">적은 건 계정에만 남아요.</span>
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
+            <p className="pv-after">봤죠? 뒤집으면 쓸 수 있어요.<br />진짜로 적으려면, 아래에서 시작해요.</p>
             {!loaded ? (
               <p className="loading">기록을 불러오는 중…</p>
             ) : (
@@ -768,7 +845,7 @@ export default function App() {
                 )}
               </div>
             )}
-            <p className="hint">적은 글은 이 기기에만 저장돼요. 만든 사람도 볼 수 없어요.</p>
+            <p className="hint">적은 글은 로그인한 계정에만 남아요. 만든 사람도 볼 수 없어요.</p>
           </div>
           <div className="byline-dock">
               <button className="byline" onClick={() => setShowAbout(true)}>
@@ -1285,6 +1362,58 @@ html,body{background:var(--bg)}
 .cover-card .intro{font-size:13.5px;line-height:1.95;color:var(--ink-soft);word-break:keep-all}
 .cat-legend{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:20px}
 .cat-legend span{font-size:11px;color:var(--olive-deep);border:1px solid var(--line);background:rgba(255,255,255,.5);border-radius:999px;padding:4px 11px}
+
+/* ── 표지 스토리텔링 ── */
+.intro.invite{margin-top:20px}
+.why-more{margin-top:8px;font-size:11.5px;color:var(--ink-soft);text-align:center}
+
+/* ── 표지 미리보기 카드 ── */
+.pv-lead{margin-top:26px;font-family:'Gowun Batang',serif;font-size:13.5px;color:var(--ink)}
+.preview-row{display:flex;gap:12px;margin-top:14px}
+.pv-flip{
+  flex:1;min-width:0;perspective:1200px;
+  background:none;border:none;padding:0;margin:0;cursor:pointer;
+  font-family:inherit;text-align:left;
+}
+.pv-flip:focus-visible{outline:2px solid var(--olive);outline-offset:3px;border-radius:14px}
+.pv-inner{
+  position:relative;display:block;width:100%;min-height:300px;
+  transform-style:preserve-3d;-webkit-transform-style:preserve-3d;
+  transition:transform .55s cubic-bezier(.4,.1,.2,1);
+}
+.pv-flip.isFlipped .pv-inner{transform:rotateY(180deg)}
+.pv-face{
+  position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;
+  background:var(--card);border:1px solid var(--line);border-radius:14px;
+  box-shadow:0 1px 0 rgba(255,255,255,.7) inset, 0 10px 22px rgba(87,80,63,.10);
+  padding:13px 12px 11px;display:flex;flex-direction:column;overflow:hidden;
+}
+.pv-back{transform:rotateY(180deg);background:var(--card-back)}
+.pv-chip{
+  align-self:flex-start;font-size:10.5px;color:var(--olive-deep);
+  border:1px solid var(--line);border-radius:999px;padding:3px 9px;
+  background:rgba(255,255,255,.55);
+}
+.pv-illust{height:64px;display:flex;align-items:center;justify-content:center;margin:10px 0 2px}
+.pv-illust img{max-height:100%;width:auto;max-width:72%}
+.pv-q{
+  flex:1;display:flex;align-items:center;
+  font-family:'Gowun Batang',serif;font-size:12px;line-height:1.7;
+  color:var(--ink);word-break:keep-all;padding:2px 1px;
+}
+.pv-hint{font-size:11px;color:var(--orange);text-align:center;padding-top:8px;border-top:1px solid var(--line)}
+.pv-paper{
+  flex:1;margin-top:12px;padding:2px 4px;
+  background:repeating-linear-gradient(to bottom, transparent 0 25px, var(--rule) 25px 26px);
+  font-family:'Gowun Batang',serif;font-size:12.5px;line-height:26px;
+  color:var(--ink-soft);text-align:left;
+}
+.pv-note{font-size:10.5px;color:var(--ink-soft);text-align:center;padding-top:8px;border-top:1px solid var(--line)}
+.pv-after{margin-top:16px;font-size:12px;line-height:1.8;color:var(--ink-soft);word-break:keep-all}
+@media (max-width:430px){
+  .preview-row{flex-direction:column}
+  .pv-inner{min-height:264px}
+}
 .cover-actions{margin-top:24px;display:flex;flex-direction:column;gap:10px;align-items:center}
 .loading{margin-top:24px;font-size:13px;color:var(--ink-soft)}
 .hint{margin-top:24px;font-size:11.5px;line-height:1.75;color:var(--ink-soft);border-top:1px solid var(--line);padding-top:15px;word-break:keep-all}
@@ -1470,9 +1599,39 @@ button:focus-visible{outline:2px solid var(--orange);outline-offset:2px}
 .arch-empty{font-size:13px;color:var(--ink-soft);opacity:.7}
 
 .account-btn{
-  margin-left:auto;border:1px solid var(--line);background:var(--card);
-  border-radius:999px;padding:6px 14px;font-size:12.5px;color:var(--ink);
+  margin-left:auto;display:inline-flex;align-items:center;gap:5px;
+  border-radius:999px;padding:7px 14px;font-size:12.5px;font-family:inherit;
   cursor:pointer;
+  transition:background .18s ease, color .18s ease, border-color .18s ease,
+             box-shadow .18s ease, transform .08s ease;
+}
+.account-btn svg{flex:none}
+
+/* 로그아웃 상태 — 또렷하게 */
+.account-btn.solid{
+  border:1px solid var(--olive-deep);
+  background:var(--olive);color:#FBF7EC;
+  box-shadow:0 1px 3px rgba(87,80,63,.16);
+}
+.account-btn.solid:hover{background:var(--olive-deep);box-shadow:0 2px 7px rgba(87,80,63,.22)}
+
+/* 로그인 상태 — 조용하게 */
+.account-btn.quiet{
+  border:1px solid var(--line);
+  background:var(--card);color:var(--ink-soft);
+}
+.account-btn.quiet:hover{border-color:var(--olive);color:var(--olive-deep);background:var(--tag)}
+
+/* 눌림 — 터치 기기에서 호버를 대신함 */
+.account-btn:active{transform:scale(.96)}
+
+/* 키보드 접근성 */
+.account-btn:focus-visible{outline:2px solid var(--olive);outline-offset:2px}
+
+/* 손가락 뗀 뒤 호버가 눌어붙는 모바일 문제 방지 */
+@media (hover:none){
+  .account-btn.solid:hover{background:var(--olive);box-shadow:0 1px 3px rgba(87,80,63,.16)}
+  .account-btn.quiet:hover{border-color:var(--line);color:var(--ink-soft);background:var(--card)}
 }
 .modal-back{
   position:fixed;inset:0;background:rgba(30,24,18,.35);

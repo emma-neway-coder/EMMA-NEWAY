@@ -24,16 +24,26 @@ const firebaseConfig = {
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 };
 
-const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
-export const db = getFirestore(app);
-export const googleProvider = new GoogleAuthProvider();
+let app, _auth, _db, _googleProvider;
+try {
+  app = initializeApp(firebaseConfig);
+  _auth = getAuth(app);
+  _db = getFirestore(app);
+  _googleProvider = new GoogleAuthProvider();
+} catch (e) {
+  console.error("[firebase] 초기화 실패 — Vercel 환경변수(VITE_FIREBASE_*)를 확인해주세요.", e);
+}
+export const auth = _auth;
+export const db = _db;
+export const googleProvider = _googleProvider;
 
 /* Analytics: 지원되는 브라우저에서만 조용히 켠다 (광고 차단기 등으로 실패해도 앱은 정상 동작) */
 let analytics = null;
-isSupported().then((ok) => {
-  if (ok && firebaseConfig.measurementId) analytics = getAnalytics(app);
-}).catch(() => {});
+if (app) {
+  isSupported().then((ok) => {
+    if (ok && firebaseConfig.measurementId) analytics = getAnalytics(app);
+  }).catch(() => {});
+}
 
 /* 로그인/가입 이벤트 기록: Analytics 대시보드용 + Firestore 문서에 직접 기록 */
 export async function trackAuthEvent(kind, user) {
